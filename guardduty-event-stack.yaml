@@ -1,0 +1,28 @@
+Parameters:
+  ControlAccountNumber:
+    Type: String
+    Description: Control account where the GuardDuty events should be sent
+    Default: "963874769787"
+  IAMRoleArn:
+    Type: String
+    Description: "The IAM role ARN of the IAM role that was generated in the previous CF template output"
+
+Resources:
+  GuardDutyDetector:
+    Type: AWS::GuardDuty::Detector
+    Properties: 
+      Enable: true
+      FindingPublishingFrequency: ONE_HOUR
+  GuardDutyEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Forwards GuardDuty events to control account
+      EventPattern:
+        source: 
+          - aws.guardduty
+      RoleArn: !Ref IAMRoleArn
+      State: ENABLED
+      Targets:
+        - Arn: !Join [":", ["arn:aws:events", !Ref "AWS::Region", !Ref ControlAccountNumber, "event-bus/default"]]
+          RoleArn: !Ref IAMRoleArn
+          Id: !Join ["-", ["guardduty-events", !Ref "AWS::Region"]]

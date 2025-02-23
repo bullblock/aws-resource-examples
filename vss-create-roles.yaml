@@ -1,0 +1,69 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description:
+  SecureState Monitoring Stack
+
+Parameters:
+  ControlAccountNumber:
+    Description: "AWS account number where centralized event bus is located"
+    Type: String
+    Default: "963874769787" # VMware Master Payer
+
+  SecureStatePrimaryRoleName:
+    Description: "Primary SecureState role so that VSS can connect to the AWS account"
+    Type: String
+    Default: securestate-role
+
+  SecureStateEventRoleName:
+    Description: "SecureState event rule role name (the name of the IAM role to forward events for Control Account)"
+    Type: String
+    Default: secure-state-event-role
+
+
+Resources:
+  SecureStatePrimaryRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/SecurityAudit" 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: 910887748405 #VSS primary AWS account
+            Action: "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                sts:ExternalId: yC7ArT3F57MC8QHlVagibYz9YMce #Common External-ID to use, do NOT change and if you do, you MUST specify why
+      RoleName: !Ref SecureStatePrimaryRoleName
+
+  SecureStateEventRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: "sts:AssumeRole"
+      RoleName: !Ref SecureStateEventRoleName
+
+  SecureStateEventRolePolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: !Join ["-", [!Ref SecureStateEventRoleName, policy]]
+      Roles: [ !Ref SecureStateEventRole ]
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "events:PutEvents"
+            Resource: !Join ["", ["arn:aws:events:*:", !Ref ControlAccountNumber, ":event-bus/default"]]
+    DependsOn: SecureStateEventRole
+
+Outputs:
+  SecureStateEventRoleArn:
+    Description: The arn for the role to be utilized by event streams
+    Value: !GetAtt SecureStateEventRole.Arn

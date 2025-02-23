@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy GuardDuty and point events to the referenced Control Account
+Parameters:
+  ControlAccountNumber:
+    Type: String
+    Description: Control account where the GuardDuty events should be sent
+    Default: "963874769787"
+  GuardDutyEventRoleName:
+    Type: String
+    Default: guardduty-event-role
+Resources:
+  EventBusWriterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref GuardDutyEventRoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: 
+                - events.amazonaws.com
+            Action: 
+              - "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName: GuardDuty-Event-IAMPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action: events:PutEvents
+                Resource: !Join ["", ["arn:aws:events:*:", !Ref ControlAccountNumber, ":event-bus/default"]]
+
+Outputs:
+  GuardDutyEventRoleArn:
+    Description: Event role to be used in regional templates to allow guardduty events to be written to control account
+    Value: !GetAtt EventBusWriterRole.Arn

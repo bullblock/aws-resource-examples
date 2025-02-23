@@ -1,0 +1,160 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description:
+  SecureState Event Stack
+
+Parameters:
+  SecureStateEventRoleArn:
+    Description: "SecureState event role ARN created via the vss_create_roles template (check output for CF deploy)"
+    Type: String
+
+  SecureStatePrimaryMonitorRule: 
+    Description: "SecureState monitor rule (The name of the monitor rule to create)"
+    Type: String
+    Default: secure-state-rule
+
+  ControlAccountNumber:
+    Description: "AWS account number where centralized event bus is located"
+    Type: String
+    Default: "963874769787" # VMware Master Control Account
+
+Resources:
+  SecureStateMonitor:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Ref SecureStatePrimaryMonitorRule
+      Description: "SecureState primary monitor rule"
+      EventPattern:
+        source:
+          - "aws.acm"
+          - "aws.apigateway"
+          - "aws.autoscaling"
+          - "aws.batch"
+          - "aws.chime"
+          - "aws.clouddirectory"
+          - "aws.cloudformation"
+          - "aws.cloudfront"
+          - "aws.cloudhsm"
+          - "aws.cloudsearch"
+          - "aws.cloudtrail"
+          - "aws.codebuild"
+          - "aws.codecommit"
+          - "aws.codedeploy"
+          - "aws.codepipeline"
+          - "aws.codestar"
+          - "aws.cognito-identity"
+          - "aws.cognito-idp"
+          - "aws.cognito-sync"
+          - "aws.config"
+          - "aws.datapipeline"
+          - "aws.datasync"
+          - "aws.devicefarm"
+          - "aws.directconnect"
+          - "aws.dlm"
+          - "aws.dms"
+          - "aws.ds"
+          - "aws.dynamodb"
+          - "aws.ec2"
+          - "aws.ecr"
+          - "aws.ecs"
+          - "aws.elasticache"
+          - "aws.elasticbeanstalk"
+          - "aws.elasticfilesystem"
+          - "aws.elasticloadbalancing"
+          - "aws.elasticmapreduce"
+          - "aws.elastictranscoder"
+          - "aws.emr"
+          - "aws.es"
+          - "aws.events"
+          - "aws.firehose"
+          - "aws.gamelift"
+          - "aws.glacier"
+          - "aws.glue"
+          - "aws.guardduty"
+          - "aws.health"
+          - "aws.iam"
+          - "aws.inspector"
+          - "aws.iot"
+          - "aws.kinesis"
+          - "aws.kms"
+          - "aws.lambda"
+          - "aws.logs"
+          - "aws.machinelearning"
+          - "aws.macie"
+          - "aws.managedservices"
+          - "aws.mediaconvert"
+          - "aws.medialive"
+          - "aws.mediastore"
+          - "aws.metering-marketplace"
+          - "aws.migrationhub"
+          - "aws.monitoring"
+          - "aws.opsworks"
+          - "aws.opsworks-cm"
+          - "aws.organizations"
+          - "aws.polly"
+          - "aws.ram"
+          - "aws.rds"
+          - "aws.redshift"
+          - "aws.route53"
+          - "aws.sagemaker"
+          - "aws.secretsmanager"
+          - "aws.servicecatalog"
+          - "aws.ses"
+          - "aws.signer"
+          - "aws.signin"
+          - "aws.sms"
+          - "aws.sns"
+          - "aws.sqs"
+          - "aws.ssm"
+          - "aws.states"
+          - "aws.storagegateway"
+          - "aws.sts"
+          - "aws.support"
+          - "aws.swf"
+          - "aws.tag"
+          - "aws.transcribe"
+          - "aws.trustedadvisor"
+          - "aws.waf"
+          - "aws.waf-regional"
+          - "aws.workdocs"
+          - "aws.workspaces"
+      Targets:
+         - Arn: !Join ["", ["arn:aws:events:", !Ref "AWS::Region", ":", !Ref ControlAccountNumber, ":event-bus/default"]]
+           Id: "MasterControlAccountBusv1" 
+           RoleArn: !Ref SecureStateEventRoleArn
+
+  SecureStateS3Monitor:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Join ["-", [!Ref SecureStatePrimaryMonitorRule, s3]]      
+      Description: "SecureState s3 cloudwatch rule"
+      EventPattern:
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          eventSource:
+            - "s3.amazonaws.com"
+          eventName:
+            - "DeleteBucket"
+            - "DeleteBucketCors"
+            - "DeleteBucketLifecycle"
+            - "DeleteBucketPolicy"
+            - "DeleteBucketReplication"
+            - "DeleteBucketTagging"
+            - "DeleteBucketWebsite"
+            - "CreateBucket"
+            - "PutBucketAcl"
+            - "PutBucketCors"
+            - "PutBucketLifecycle"
+            - "PutBucketPolicy"
+            - "PutBucketLogging"
+            - "PutBucketNotification"
+            - "PutBucketReplication"
+            - "PutBucketTagging"
+            - "PutBucketRequestPayment"
+            - "PutBucketVersioning"
+            - "PutBucketWebsite"  
+      Targets:
+         - Arn: !Join ["", ["arn:aws:events:", !Ref "AWS::Region", ":", !Ref ControlAccountNumber, ":event-bus/default"]]
+           Id: !Join ["-", ["MasterControlAccountBusv1", !Ref "AWS::Region"]]
+           RoleArn: !Ref SecureStateEventRoleArn
