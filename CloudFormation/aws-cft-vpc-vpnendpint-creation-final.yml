@@ -1,0 +1,633 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'VPC with 3 AZs, public/private subnets, NAT Gateways, and Client VPN Endpoint'
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Description: Prefix for all resource names
+    Default: myproject
+
+  VpcCidr:
+    Type: String
+    Description: CIDR block for the VPC
+    Default: 10.0.0.0/16
+
+  PublicSubnet1Cidr:
+    Type: String
+    Description: CIDR block for public subnet in AZ1
+    Default: 10.0.1.0/24
+
+  PublicSubnet2Cidr:
+    Type: String
+    Description: CIDR block for public subnet in AZ2
+    Default: 10.0.2.0/24
+
+  PublicSubnet3Cidr:
+    Type: String
+    Description: CIDR block for public subnet in AZ3
+    Default: 10.0.3.0/24
+
+  AppSubnet1Cidr:
+    Type: String
+    Description: CIDR block for application subnet in AZ1
+    Default: 10.0.11.0/24
+
+  AppSubnet2Cidr:
+    Type: String
+    Description: CIDR block for application subnet in AZ2
+    Default: 10.0.12.0/24
+
+  AppSubnet3Cidr:
+    Type: String
+    Description: CIDR block for application subnet in AZ3
+    Default: 10.0.13.0/24
+
+  BackendSubnet1Cidr:
+    Type: String
+    Description: CIDR block for backend subnet in AZ1
+    Default: 10.0.21.0/24
+
+  BackendSubnet2Cidr:
+    Type: String
+    Description: CIDR block for backend subnet in AZ2
+    Default: 10.0.22.0/24
+
+  BackendSubnet3Cidr:
+    Type: String
+    Description: CIDR block for backend subnet in AZ3
+    Default: 10.0.23.0/24
+
+  ClientVpnCidr:
+    Type: String
+    Description: CIDR block for VPN client connections
+    Default: 172.16.0.0/22
+
+Resources:
+  # Random String Generation
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CustomLambdaPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - acm:ImportCertificate
+                  - acm:ListCertificates
+                  - acm:DescribeCertificate
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  GenerateRandomStringFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import random
+          import string
+          def handler(event, context):
+            if event['RequestType'] in ['Create', 'Update']:
+              chars = string.ascii_lowercase + string.digits
+              result = ''.join(random.choice(chars) for _ in range(4))
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {'RandomString': result})
+            else:
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {'RandomString': ''})
+
+  RandomString:
+    Type: Custom::RandomString
+    Properties:
+      ServiceToken: !GetAtt GenerateRandomStringFunction.Arn
+
+  # VPC and Internet Gateway
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-vpc-${RandomString.RandomString}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-igw-${RandomString.RandomString}
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Subnets
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-public-subnet-1-${RandomString.RandomString}
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-public-subnet-2-${RandomString.RandomString}
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet3Cidr
+      AvailabilityZone: !Select [2, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-public-subnet-3-${RandomString.RandomString}
+
+  AppSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-app-subnet-1-${RandomString.RandomString}
+
+  AppSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-app-subnet-2-${RandomString.RandomString}
+
+  AppSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet3Cidr
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-app-subnet-3-${RandomString.RandomString}
+
+  BackendSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref BackendSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-backend-subnet-1-${RandomString.RandomString}
+
+  BackendSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref BackendSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-backend-subnet-2-${RandomString.RandomString}
+
+  BackendSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref BackendSubnet3Cidr
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-backend-subnet-3-${RandomString.RandomString}
+
+  # NAT Gateways and Elastic IPs
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat-eip-1-${RandomString.RandomString}
+
+  NatGateway2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat-eip-2-${RandomString.RandomString}
+
+  NatGateway3EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat-eip-3-${RandomString.RandomString}
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat-1-${RandomString.RandomString}
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat-2-${RandomString.RandomString}
+
+  NatGateway3:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway3EIP.AllocationId
+      SubnetId: !Ref PublicSubnet3
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat-3-${RandomString.RandomString}
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-public-rt-${RandomString.RandomString}
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-private-rt-1-${RandomString.RandomString}
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-private-rt-2-${RandomString.RandomString}
+
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-private-rt-3-${RandomString.RandomString}
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  PrivateRoute3:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway3
+
+  # Route Table Associations
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable
+
+  AppSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  AppSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+  AppSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet3
+      RouteTableId: !Ref PrivateRouteTable3
+
+  BackendSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BackendSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  BackendSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BackendSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+  BackendSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BackendSubnet3
+      RouteTableId: !Ref PrivateRouteTable3
+
+  # DHCP Options Set
+  DHCPOptions:
+    Type: AWS::EC2::DHCPOptions
+    Properties:
+      DomainNameServers: 
+        - AmazonProvidedDNS
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-dhcp-options-${RandomString.RandomString}
+
+  VPCDHCPOptionsAssociation:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties:
+      VpcId: !Ref VPC
+      DhcpOptionsId: !Ref DHCPOptions
+
+  # Certificate Import Function
+  CertificateImportFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import urllib.request
+          import ssl
+          import logging
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          def download_cert(url):
+              logger.info(f"Downloading certificate from: {url}")
+              try:
+                  context = ssl._create_unverified_context()
+                  headers = {'Accept': 'application/vnd.github.v3.raw'}
+                  req = urllib.request.Request(url, headers=headers)
+                  response = urllib.request.urlopen(req, context=context)
+                  cert_data = response.read()
+                  logger.info(f"Successfully downloaded certificate from: {url}")
+                  return cert_data
+              except Exception as e:
+                  logger.error(f"Error downloading certificate from {url}: {str(e)}")
+                  raise
+          
+          def handler(event, context):
+              logger.info(f"Starting certificate import process")
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      acm = boto3.client('acm')
+                      base_url = "https://raw.githubusercontent.com/bullblock/aws-acm-certs/refs/heads/main"
+                      
+                      server_cert = download_cert(f"{base_url}/server.paraview.biz.crt")
+                      server_key = download_cert(f"{base_url}/server.paraview.biz.key")
+                      client_cert = download_cert(f"{base_url}/client.paraview.biz.crt")
+                      client_key = download_cert(f"{base_url}/client.paraview.biz.key")
+                      ca_cert = download_cert(f"{base_url}/ca.crt")
+                      
+                      logger.info("Importing server certificate")
+                      response_server = acm.import_certificate(
+                          Certificate=server_cert,
+                          PrivateKey=server_key,
+                          CertificateChain=ca_cert
+                      )
+                      
+                      logger.info("Importing client certificate")
+                      response_client = acm.import_certificate(
+                          Certificate=client_cert,
+                          PrivateKey=client_key,
+                          CertificateChain=ca_cert
+                      )
+                      
+                      logger.info("Successfully imported certificates")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'ServerCertificateArn': response_server['CertificateArn'],
+                          'ClientCertificateArn': response_client['CertificateArn']
+                      })
+                  elif event['RequestType'] == 'Delete':
+                      logger.info("Delete request - no action needed for ACM certificates")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  else:
+                      logger.info(f"Unsupported request type: {event['RequestType']}")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  logger.error(f"Error in certificate import: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {
+                      'Error': str(e)
+                  })
+
+  CertificateImportTrigger:
+    Type: Custom::CertificateImport
+    Properties:
+      ServiceToken: !GetAtt CertificateImportFunction.Arn
+
+  # Client VPN Endpoint
+  ClientVpnSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ResourcePrefix}-client-vpn-sg-${RandomString.RandomString}
+      GroupDescription: Security group for Client VPN Endpoint
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref VpcCidr
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref ClientVpnCidr
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-client-vpn-sg-${RandomString.RandomString}
+
+  ClientVpnLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${ResourcePrefix}-client-vpn-logs-${RandomString.RandomString}
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-client-vpn-logs-${RandomString.RandomString}
+
+  ClientVpnLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref ClientVpnLogGroup
+      LogStreamName: !Sub ${ResourcePrefix}-client-vpn-log-stream-${RandomString.RandomString}
+
+  ClientVpnEndpoint:
+    Type: AWS::EC2::ClientVpnEndpoint
+    DependsOn: 
+      - CertificateImportTrigger
+      - ClientVpnLogStream
+    Properties:
+      ClientCidrBlock: !Ref ClientVpnCidr
+      ServerCertificateArn: !GetAtt CertificateImportTrigger.ServerCertificateArn
+      AuthenticationOptions:
+        - Type: certificate-authentication
+          MutualAuthentication:
+            ClientRootCertificateChainArn: !GetAtt CertificateImportTrigger.ClientCertificateArn
+      ConnectionLogOptions: 
+        Enabled: true
+        CloudwatchLogGroup: !Ref ClientVpnLogGroup
+        CloudwatchLogStream: !Ref ClientVpnLogStream
+      Description: VPN for secure remote access
+      SplitTunnel: true
+      VpcId: !Ref VPC
+      SecurityGroupIds:
+        - !Ref ClientVpnSecurityGroup
+      VpnPort: 443
+      TransportProtocol: tcp
+      TagSpecifications:
+        - ResourceType: client-vpn-endpoint
+          Tags:
+            - Key: Name
+              Value: !Sub ${ResourcePrefix}-client-vpn-endpoint-${RandomString.RandomString}
+
+  ClientVpnTargetNetworkAssociation1:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      SubnetId: !Ref BackendSubnet1
+
+  ClientVpnTargetNetworkAssociation2:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      SubnetId: !Ref BackendSubnet2
+
+  ClientVpnTargetNetworkAssociation3:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      SubnetId: !Ref BackendSubnet3
+
+  ClientVpnAuthorizationRule:
+    Type: AWS::EC2::ClientVpnAuthorizationRule
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      AuthorizeAllGroups: true
+      TargetNetworkCidr: !Ref ClientVpnCidr
+
+  ClientVpnAuthorizationRuleVpc:
+    Type: AWS::EC2::ClientVpnAuthorizationRule
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      AuthorizeAllGroups: true
+      TargetNetworkCidr: !Ref VpcCidr
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  PublicSubnets:
+    Description: List of public subnet IDs
+    Value: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
+
+  AppSubnets:
+    Description: List of application subnet IDs
+    Value: !Join [",", [!Ref AppSubnet1, !Ref AppSubnet2, !Ref AppSubnet3]]
+
+  BackendSubnets:
+    Description: List of backend subnet IDs
+    Value: !Join [",", [!Ref BackendSubnet1, !Ref BackendSubnet2, !Ref BackendSubnet3]]
+
+  ClientVpnEndpointId:
+    Description: Client VPN Endpoint ID
+    Value: !Ref ClientVpnEndpoint
+
+  ServerCertificateArn:
+    Description: ARN of the imported server certificate
+    Value: !GetAtt CertificateImportTrigger.ServerCertificateArn
+
+  ClientCertificateArn:
+    Description: ARN of the imported client certificate
+    Value: !GetAtt CertificateImportTrigger.ClientCertificateArn
+
+  RandomSuffix:
+    Description: Random suffix used for resource naming
+    Value: !GetAtt RandomString.RandomString
